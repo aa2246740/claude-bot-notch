@@ -3,8 +3,7 @@ import { basename } from 'node:path'
 
 /**
  * Claude Code session state folded from hook events into the same NotchSnapshot
- * wire contract the native helper already reads from the DSH Host plugin
- * (src/types.ts in aa2246740/dsh-notch). Pure: no I/O, clock injected, so tests drive it directly.
+ * snapshot the notch app renders (helper/Sources/Client.swift). Pure: no I/O, clock injected, so tests drive it directly.
  */
 
 // Background work that re-wakes the main agent when it settles. Shell tasks

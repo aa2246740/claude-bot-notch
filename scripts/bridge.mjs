@@ -1,25 +1,29 @@
 #!/usr/bin/env node
 /**
- * Local stand-in for the DSH Host plugin. Claude Code hooks post session events
- * here, and the unchanged native Notch helper reads the same /dsh-notch/* HTTP
- * contract it reads from DSH, located through DSH_NOTCH_RUNTIME_FILE. Those two
- * names belong to the helper's protocol and stay as they are.
+ * Per-user loopback daemon between Claude Code and the native notch app.
+ * Claude Code hooks post session events here; the notch app (helper/) polls
+ * /bot-notch/status and posts answers back, locating this bridge through the
+ * runtime file named by BOT_NOTCH_RUNTIME_FILE.
  *
- * One bridge per user. It exits once no Claude Code process it tracks is alive,
- * and the helper (which follows the runtime file's pid) exits with it.
+ * It exits once no Claude Code process it tracks is alive, and the notch app
+ * (which follows the runtime file's pid) exits with it.
  */
 import { execFile } from 'node:child_process'
 import { randomBytes, randomUUID } from 'node:crypto'
-import { createWriteStream, existsSync, openSync, closeSync, writeSync, readFileSync, unlinkSync } from 'node:fs'
+import { createWriteStream, openSync, closeSync, writeSync, readFileSync, unlinkSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { ClaudeBoard } from './lib/board.mjs'
+import { ensureHelper } from './lib/helper-install.mjs'
 import { superviseNotch } from './lib/notch-lifecycle.mjs'
 import { BUNDLE_ID, alive, ensureDir, paths, readJson, writePrivateJson } from './lib/runtime.mjs'
 
-const PREFIX = '/dsh-notch'
+const PREFIX = '/bot-notch'
 const IDLE_EXIT_MS = Number(process.env.BOT_NOTCH_IDLE_EXIT_MS) || 60_000
 const PRUNE_MS = 2_000
 const SEEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
+// The notch app polls status every 0.8 s; silence beyond this means no notch is on screen.
+const HELPER_FRESH_MS = 5_000
+const HELPER_START_WAIT_MS = 4_000
 
 const files = paths()
 ensureDir(files.dir)
@@ -128,7 +132,8 @@ async function handle(req, res) {
     return
   }
 
-  // ---- Native helper contract (same as src/http.ts) ----
+  // ---- Notch app contract ----
+  if (method === 'GET' && (path === `${PREFIX}/status` || path === `${PREFIX}/events`)) lastHelperAt = Date.now()
   if (method === 'GET' && path === `${PREFIX}/status`) return send(res, 200, board.snapshot(origin))
   if (method === 'GET' && path === `${PREFIX}/diagnostics`) return send(res, 200, { pid: process.pid, ...board.diagnostics() })
   if (method === 'GET' && path === `${PREFIX}/events`) {
@@ -177,6 +182,8 @@ async function handle(req, res) {
     const input = body.input
     const waitMs = Math.max(0, Math.min(Number(body.waitMs) || 0, 55 * 60 * 1000))
     if (!input || typeof input.session_id !== 'string' || !waitMs) return send(res, 200, { ok: true, decision: null })
+    // Without a notch on screen nobody can answer here: never delay Claude Code's own dialog.
+    if (!await helperOnScreen()) return send(res, 200, { ok: true, decision: null })
     const held = board.hold(input)
     let settled = false
     const finish = decision => {
@@ -205,6 +212,21 @@ const server = createServer((req, res) => {
 
 let helper
 let helperLog
+let lastHelperAt = 0
+
+const helperFresh = () => Date.now() - lastHelperAt < HELPER_FRESH_MS
+
+/** True when a notch app is polling; briefly waits while one we launched is starting. */
+async function helperOnScreen() {
+  if (helperFresh()) return true
+  if (!helper) return false
+  const until = Date.now() + HELPER_START_WAIT_MS
+  while (Date.now() < until) {
+    await new Promise(resolve => setTimeout(resolve, 100))
+    if (helperFresh()) return true
+  }
+  return false
+}
 let pruneTimer
 let idleSince = Date.now()
 let stopping = false
@@ -231,14 +253,13 @@ server.listen(0, '127.0.0.1', () => {
   writePrivateJson(files.runtime, { origin, token, pid: process.pid, writtenAt: Date.now(), source: 'claude-code' })
   log(`listening on ${origin}`)
 
-  const helperPath = process.env.CLAUDE_PLUGIN_OPTION_HELPER_PATH || process.env.BOT_NOTCH_HELPER || ''
-  if (helperPath) {
-    if (!existsSync(helperPath)) log(`configured helper does not exist: ${helperPath}`)
-    else {
+  if (process.env.BOT_NOTCH_NO_HELPER !== '1') {
+    ensureHelper({ dir: files.dir, log }).then(bin => {
+      if (!bin || stopping) return
       helperLog = createWriteStream(files.helperLog, { flags: 'a', mode: 0o600 })
-      helper = superviseNotch({ bin: helperPath, pidPath: files.helperPid, log: helperLog,
-        env: { ...process.env, DSH_NOTCH_RUNTIME_FILE: files.runtime } })
-    }
+      helper = superviseNotch({ bin, pidPath: files.helperPid, log: helperLog,
+        env: { ...process.env, BOT_NOTCH_RUNTIME_FILE: files.runtime } })
+    }).catch(error => log(`helper unavailable: ${error.message}`))
   }
 
   pruneTimer = setInterval(() => {

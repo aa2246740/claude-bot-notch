@@ -25,7 +25,7 @@ function readStdin() {
 }
 
 async function call(runtime, path, body, { method = 'POST', timeoutMs = 3000 } = {}) {
-  const response = await fetch(`${runtime.origin}/dsh-notch${path}`, {
+  const response = await fetch(`${runtime.origin}/bot-notch${path}`, {
     method,
     headers: { authorization: `Bearer ${runtime.token}`, 'content-type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),

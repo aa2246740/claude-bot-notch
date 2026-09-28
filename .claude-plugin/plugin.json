@@ -19,8 +19,8 @@
   "userConfig": {
     "helper_path": {
       "type": "file",
-      "title": "Notch helper executable",
-      "description": "Absolute path to the extracted native notch executable (keep its resource bundle beside it). When set, the plugin starts and supervises the helper. Leave empty to start it yourself.",
+      "title": "Custom notch app (optional)",
+      "description": "Leave empty: the plugin downloads and runs the prebuilt notch app by itself. Set an absolute path only to run your own build of helper/ (keep BotNotch_BotNotch.bundle beside it).",
       "default": ""
     },
     "approval_wait_seconds": {

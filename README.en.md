@@ -2,87 +2,97 @@
 
 [中文](README.md) · [English](README.en.md)
 
-Bot Notch puts Claude Code CLI and Desktop sessions at the edge of your Mac screen: running sessions, permission prompts, AskUserQuestion questions and unread results. You can allow, reject or answer from the notch, and clicking a session brings its terminal or app to the front.
-
-```
-Claude Code hooks ──► scripts/hook.mjs ──► scripts/bridge.mjs (127.0.0.1 + token) ◄── native notch helper
-```
-
-The plugin's hooks post session events to a small local bridge. The native helper (the macOS app that draws the notch) reads the bridge over the `/dsh-notch/*` HTTP contract and finds it through `DSH_NOTCH_RUNTIME_FILE`.
+Bot Notch is a Claude Code plugin that puts your Claude Code CLI and Desktop sessions on a small island at the right edge of your Mac screen. Running sessions, permission prompts, AskUserQuestion questions and unread results show up there, and you can allow, reject or answer right on it. When nothing is happening, a small robot idles there.
 
 ## Installation
 
 Requirements: macOS 14+ on Apple Silicon, Node.js 18+ on `PATH`, and a recent Claude Code.
 
-1. **Native helper.** For now it is the prebuilt helper from [dsh-notch releases](https://github.com/aa2246740/dsh-notch/releases) (`dsh-notch-<version>-macos-arm64.tar.gz`). Extract it and keep the executable and `DshNotch_DshNotch.bundle` in the same folder.
-2. **Plugin.** In Claude Code:
+In Claude Code:
 
-   ```
-   /plugin marketplace add aa2246740/claude-bot-notch
-   /plugin install bot-notch@claude-bot-notch
-   /plugin configure bot-notch@claude-bot-notch
-   ```
-
-   Set **Notch helper executable** to the absolute path of the extracted executable. The plugin then starts and supervises it.
-
-Claude Desktop's Code tab runs the same Claude Code with the same user plugins, so it works there too after installation.
-
-To start the helper yourself instead, leave `helper_path` empty and run:
-
-```sh
-DSH_NOTCH_RUNTIME_FILE="$HOME/.claude/bot-notch/runtime.json" ./dsh-notch
+```
+/plugin marketplace add aa2246740/claude-bot-notch
 ```
 
-For development, load the checkout for one session with `claude --plugin-dir /path/to/claude-bot-notch`.
+```
+/plugin install bot-notch@claude-bot-notch
+```
+
+Then start a new session. On first use the plugin downloads the native notch app (a few MB) from this repository's Releases, verifies its SHA-256 and starts it. There is nothing to configure. Claude Desktop's Code tab reads the same user plugins, so it works there too.
+
+On Windows, Linux or Intel Macs the plugin installs, but it only tracks state in the background: there is no UI and it never holds a prompt.
 
 ## Behavior
 
 | Claude Code event | Notch |
 | --- | --- |
-| `UserPromptSubmit` | Blue: running. Sending a message also marks the previous result as read |
-| `PermissionRequest` (Bash / Edit / MCP …) | Yellow: approval card with the tool and command; Allow or Reject |
-| `PermissionRequest` (AskUserQuestion) | Yellow: the questions and options, answered in the panel (multi-select and free text) |
-| `PermissionRequest` (ExitPlanMode) | Yellow: "Approve plan: <title>" |
-| `Stop` | Green: unread result. A running background subagent or workflow keeps it blue |
-| `StopFailure` (rate_limit, server_error …) | Red: failed result |
-| `SessionEnd`, or the Claude Code process exits | Removed |
+| Prompt sent (`UserPromptSubmit`) | Blue: running. Sending a message also marks the previous result as read |
+| Permission prompt (Bash / Edit / MCP …) | Yellow: approval card with the tool and command; Allow or Reject |
+| AskUserQuestion | Yellow: the questions, answered in the panel (multi-select and free text) |
+| Plan approval (ExitPlanMode) | Yellow: "Approve plan: <title>" |
+| Turn finished (`Stop`) | Green: unread result. A running background subagent or workflow keeps it blue |
+| API error (`StopFailure`) | Red: failed result |
+| Session ends, or the Claude Code process exits | Removed |
 
-- **Answering:** a notch card stays answerable for `approval_wait_seconds` (default 300). With no answer by then, Claude Code's own dialog decides. `0` means status only. Answering in the terminal first is designed to withdraw the card, but whether Claude Code shows its dialog while this hook is still waiting has not been verified interactively yet.
-- **Opening a session** brings the hosting app forward (Terminal, iTerm2, VS Code, Ghostty, Claude Desktop …, detected from `__CFBundleIdentifier` / `TERM_PROGRAM`). It cannot select a specific tab.
+- **Answering:** the plugin only takes over a prompt when a notch is actually on screen. The card stays answerable for `approval_wait_seconds` (default 300). With no answer by then, Claude Code's own dialog decides. `0` means status only. Answering in the terminal first is designed to withdraw the card, but whether Claude Code shows its dialog while the plugin is still waiting has not been verified interactively yet.
+- **Opening a session** brings its hosting app forward (Terminal, iTerm2, VS Code, Ghostty, Claude Desktop …). It cannot select a specific tab.
 - **Subagents** belong to their owning conversation. Their prompts show on the owner's yellow light.
-- **Lifecycle:** one bridge per user. It exits about a minute after the last Claude Code process it tracks, and the helper exits with it.
+- **Lifecycle:** about a minute after the last Claude Code process exits, the background service and the notch exit together. They come back with the next Claude Code session.
 
-## Files
+## Optional settings
 
-`~/.claude/bot-notch/` (follows `CLAUDE_CONFIG_DIR`; override with `BOT_NOTCH_HOME`):
+Normally none are needed. To change them, run `/plugin configure bot-notch@claude-bot-notch`:
 
-| File | Purpose |
+| Setting | Effect |
 | --- | --- |
-| `runtime.json` | Bridge address, token and pid (mode 0600; do not share) |
-| `seen.json` | Read timestamps, kept 30 days |
-| `bridge.log` / `helper.log` | Logs |
+| `approval_wait_seconds` | How long a card stays answerable (default 300; `0` = status only) |
+| `helper_path` | Run your own build of the notch app instead of the downloaded one |
 
-The bridge listens only on 127.0.0.1 and every request needs the token.
+## How it works
 
-## Alongside DSH Notch
+```
+Claude Code hooks ──► scripts/hook.mjs ──► scripts/bridge.mjs (127.0.0.1 + token) ◄── notch app (helper/)
+```
 
-Files, ports and settings are separate (`~/.dsh/dsh-notch/` vs `~/.claude/bot-notch/`). If DSH and Claude Code run at the same time, though, each starts its own copy of the helper. The two windows sit at the same spot on the right edge and overlap, and they share the edge-hidden state.
+- `hooks/hooks.json` hands session events to `scripts/hook.mjs`.
+- `scripts/bridge.mjs` is a per-user local service. It listens only on 127.0.0.1, and every request needs its token.
+- `helper/` is the native notch app (Swift, AppKit, SwiftUI). It reads `/bot-notch/status` every 0.8 s.
+
+Everything lives in `~/.claude/bot-notch/` (override with `BOT_NOTCH_HOME`): `runtime.json` (address and token, mode 0600; do not share), `seen.json` (read state), `helper/<version>/` (the downloaded notch app) and logs.
+
+## Building the notch app
+
+Requires Xcode 26 or newer:
+
+```sh
+swift build --package-path helper -c release
+```
+
+The build produces `bot-notch` and `BotNotch_BotNotch.bundle`. Keep them in the same folder and set `helper_path` to that `bot-notch`. To release (on a Mac):
+
+```sh
+v=$(node -p "require('./scripts/lib/helper-version.json').version")
+bin=$(swift build --package-path helper -c release --show-bin-path)
+mkdir -p dist && tar -czf dist/bot-notch-$v-macos-arm64.tar.gz -C "$bin" bot-notch BotNotch_BotNotch.bundle
+(cd dist && shasum -a 256 bot-notch-$v-macos-arm64.tar.gz > SHA256SUMS)
+gh release create helper-v$v dist/*
+```
+
+The plugin downloads that tarball from the `helper-v<version>` release and checks it against the `SHA256SUMS` in the same release.
 
 ## Known limitations
 
 - Network-access prompts from sandboxed commands do not trigger `PermissionRequest`. Answer those in Claude Code.
-- A new `helper_path` takes effect once every Claude Code session has exited and the bridge restarts.
-- Verified so far: unit and end-to-end tests, and real `claude -p` runs where Notch Allow/Reject decided a Bash call. Not yet verified: the interactive terminal, Claude Desktop, and the helper window on a Mac.
+- Prebuilt notch app for Apple Silicon only.
+- Verified so far: unit and end-to-end tests, and real `claude -p` runs where Notch Allow/Reject decided a Bash call. Not yet verified: the interactive terminal, Claude Desktop, and the notch app on a Mac.
 
 ## Development
 
 ```sh
 npm test
-claude plugin validate .
+claude --plugin-dir .
 ```
-
-`scripts/lib/notch-lifecycle.mjs` is copied verbatim from dsh-notch's `desktop/notch-lifecycle.mjs`.
 
 ## License
 
-[MIT](LICENSE).
+[MIT](LICENSE). The notch app is derived from [dsh-notch](https://github.com/aa2246740/dsh-notch) (MIT). Robot motions come from [OpenBotMotion](https://github.com/aa2246740/open-bot-motion); its [MIT notice](helper/LICENSE.open-bot-motion) is retained.

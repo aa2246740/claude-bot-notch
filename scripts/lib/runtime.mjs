@@ -4,8 +4,8 @@ import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 
 /**
- * Fixed, user-visible location so a manually started helper can be pointed at
- * it: DSH_NOTCH_RUNTIME_FILE="$HOME/.claude/bot-notch/runtime.json".
+ * Fixed, user-visible location; the notch app looks here by default
+ * (~/.claude/bot-notch/runtime.json) and honours BOT_NOTCH_RUNTIME_FILE.
  */
 export function notchHome(env = process.env) {
   if (env.BOT_NOTCH_HOME) return env.BOT_NOTCH_HOME

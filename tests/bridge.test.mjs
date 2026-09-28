@@ -23,13 +23,13 @@ function hook(env, input) {
 
 function setup(t, extra = {}) {
   const home = mkdtempSync(join(tmpdir(), 'notch-claude-'))
-  const env = { ...process.env, BOT_NOTCH_HOME: home, BOT_NOTCH_IDLE_EXIT_MS: '400',
+  const env = { ...process.env, BOT_NOTCH_HOME: home, BOT_NOTCH_IDLE_EXIT_MS: '400', BOT_NOTCH_NO_HELPER: '1',
     __CFBundleIdentifier: 'com.apple.Terminal', ...extra }
   delete env.CLAUDE_PLUGIN_OPTION_HELPER_PATH
   const runtime = () => JSON.parse(readFileSync(join(home, 'runtime.json'), 'utf8'))
   const api = async (path, body) => {
     const { origin, token } = runtime()
-    const response = await fetch(`${origin}/dsh-notch${path}`, {
+    const response = await fetch(`${origin}/bot-notch${path}`, {
       method: body === undefined ? 'GET' : 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -63,7 +63,7 @@ test('hooks start the bridge and drive the helper contract end to end', async t 
   assert.equal(runtime.source, 'claude-code')
   assert.equal(statSync(join(f.home, 'runtime.json')).mode & 0o777, 0o600)
 
-  const forbidden = await fetch(`${runtime.origin}/dsh-notch/status`)
+  const forbidden = await fetch(`${runtime.origin}/bot-notch/status`)
   assert.equal(forbidden.status, 403)
 
   await f.fire('UserPromptSubmit', { prompt: 'Ship the plugin' })
@@ -108,12 +108,22 @@ test('hooks start the bridge and drive the helper contract end to end', async t 
 test('an unanswered prompt falls back to Claude Code with no decision', async t => {
   const f = setup(t, { CLAUDE_PLUGIN_OPTION_APPROVAL_WAIT_SECONDS: '0.3' })
   await f.fire('SessionStart', { source: 'startup' })
+  await f.api('/status') // a notch is on screen
   const started = Date.now()
   const result = await f.fire('PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'ls' } })
   assert.equal(result.code, 0)
   assert.equal(result.stdout, '')
   assert.ok(Date.now() - started < 3000)
   assert.equal((await f.api('/status')).body.rows.length, 0)
+})
+
+test('with no notch on screen a prompt is never held, however long the window', async t => {
+  const f = setup(t, { CLAUDE_PLUGIN_OPTION_APPROVAL_WAIT_SECONDS: '600' })
+  await f.fire('SessionStart', { source: 'startup' })
+  const started = Date.now()
+  const result = await f.fire('PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'ls' } })
+  assert.equal(result.stdout, '')
+  assert.ok(Date.now() - started < 3000, 'returned without waiting for an answer')
 })
 
 test('approval window 0 never holds; a missing bridge never blocks SessionEnd', async t => {

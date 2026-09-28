@@ -9,7 +9,7 @@ import { superviseNotch } from '../scripts/lib/notch-lifecycle.mjs'
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 function fixture(t, initial = 42) {
   const root = mkdtempSync(join(tmpdir(), 'notch-supervisor-'))
-  const pidPath = join(root, 'helper.pid'), bin = '/test/dsh-notch'
+  const pidPath = join(root, 'helper.pid'), bin = '/test/bot-notch'
   const processes = new Map(), killed = [], children = []
   let next = 100
   const live = (pid, stamp = String(pid), command = bin) => processes.set(pid, { state: 'alive', stamp, command })
