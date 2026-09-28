@@ -1,0 +1,14 @@
+{
+  "name": "claude-bot-notch",
+  "description": "Bot Notch: a native macOS notch for Claude Code CLI and Desktop.",
+  "owner": {
+    "name": "aa2246740"
+  },
+  "plugins": [
+    {
+      "name": "bot-notch",
+      "source": "./",
+      "description": "Show Claude Code sessions, permission prompts and questions in a native macOS notch."
+    }
+  ]
+}

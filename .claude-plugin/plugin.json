@@ -1,0 +1,35 @@
+{
+  "name": "bot-notch",
+  "displayName": "Bot Notch",
+  "version": "0.1.0",
+  "description": "Show Claude Code sessions, permission prompts and questions in a native macOS notch; answer them from the screen edge.",
+  "author": {
+    "name": "aa2246740"
+  },
+  "homepage": "https://github.com/aa2246740/claude-bot-notch",
+  "repository": "https://github.com/aa2246740/claude-bot-notch",
+  "license": "MIT",
+  "keywords": [
+    "notch",
+    "macos",
+    "notifications",
+    "permissions",
+    "status"
+  ],
+  "userConfig": {
+    "helper_path": {
+      "type": "file",
+      "title": "Notch helper executable",
+      "description": "Absolute path to the extracted native notch executable (keep its resource bundle beside it). When set, the plugin starts and supervises the helper. Leave empty to start it yourself.",
+      "default": ""
+    },
+    "approval_wait_seconds": {
+      "type": "number",
+      "title": "Answer-from-Notch window (seconds)",
+      "description": "How long a permission prompt or AskUserQuestion stays answerable in Notch. Answering in Claude Code first always wins. 0 shows status only.",
+      "default": 300,
+      "min": 0,
+      "max": 3300
+    }
+  }
+}
